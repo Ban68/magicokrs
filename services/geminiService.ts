@@ -1,14 +1,4 @@
-
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-
-// Ensure the API key is available in the environment variables
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  console.error("Gemini API key not found. Please set the API_KEY environment variable.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY! });
 
 interface KrValidationResult {
   isValid: boolean;
@@ -29,9 +19,43 @@ Respond ONLY with a JSON object in the following format:
 }
 Do not include any other text or markdown formatting in your response.`;
 
+
+// Define a variable to hold the Gemini client instance.
+// It will be lazily initialized on the first API call.
+let ai: GoogleGenAI | null;
+
+const getAiClient = (): GoogleGenAI | null => {
+  // If the client is already initialized, return it.
+  if (ai) {
+    return ai;
+  }
+
+  const apiKey = process.env.API_KEY;
+  
+  if (apiKey) {
+    try {
+        ai = new GoogleGenAI({ apiKey });
+        return ai;
+    } catch (error) {
+        console.error("Failed to initialize GoogleGenAI client:", error);
+        ai = null; // Mark as failed to prevent retries.
+        return null;
+    }
+  } else {
+    // This path is taken if the API key is not available.
+    // We don't throw an error here to prevent crashing the app.
+    // The calling function will handle the null client.
+    console.error("Gemini API key not found. Please set the API_KEY environment variable.");
+    return null;
+  }
+};
+
+
 export const validateKeyResultWithAI = async (krDescription: string): Promise<KrValidationResult> => {
-  if (!API_KEY) {
-    // Return a default "passing" state if API key is not available to avoid blocking UI
+  const geminiClient = getAiClient();
+  
+  if (!geminiClient) {
+    // Return a default "passing" state if API key is not available, to avoid blocking the UI.
     return {
       isValid: true,
       feedback: 'AI validation skipped. API key not configured.',
@@ -39,7 +63,7 @@ export const validateKeyResultWithAI = async (krDescription: string): Promise<Kr
   }
 
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const response: GenerateContentResponse = await geminiClient.models.generateContent({
       model: "gemini-2.5-flash-preview-04-17",
       contents: `Analyze this Key Result: "${krDescription}"`,
       config: {
